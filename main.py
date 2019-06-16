@@ -12,7 +12,12 @@ from tabulate import tabulate
 
 db = SqliteDatabase(None)
 migrator = SqliteMigrator(db)
-commands = OrderedDict({"Quit": exit})
+type_to_col_class = {
+  "Text" : TextField,
+  "Integer": IntegerField,
+  "Date and Time": DateTimeField,
+  "Lookup": ForeignKeyField
+}
 
 def push_command(k, v, commands):
   commands[k] = v
@@ -89,8 +94,6 @@ def make_column(model, name, col_cls, col_null, col_default, label=None, fk_cls=
   )
   return generate_models(db, table_names=[model._meta.table_name])
 
-# field type to prompt
-
 def prompt_field(commands, field, current_value=None):
   q = {
     "type":"input",
@@ -112,10 +115,12 @@ def prompt_instance(commands, model_cls, model_instance=None):
       if isinstance(current_value, Model):
         current_value = str(getattr(current_value, 'id'))
       new_value = prompt_field(commands, field, current_value=current_value)
+      if isinstance(field, (ForeignKeyField,IntegerField)) and new_value == '':
+        new_value = None
       setattr(row, field.name, new_value)
   
   row.save()
-  list_instances(model_cls)
+  list_instances(commands, model_cls)
   return commands
 
 def prompt_edit(commands, model_cls):
@@ -129,22 +134,12 @@ def prompt_edit(commands, model_cls):
   model_instance = model_cls.get(model_cls.name==a["name"])
   return prompt_instance(commands, model_cls, model_instance=model_instance)
 
-def list_instances(model_cls):
-  # print("list {}".format(model_cls))
-  # model_cls = globals().get(model_cls.name)
-  # for row in model_cls.select().order_by(model_cls.created).dicts():
-  #   print(row)
+def list_instances(commands, model_cls):
   print(tabulate(model_cls.select().order_by(model_cls.created).dicts(), headers="keys"))
   return commands
 
-type_to_col_class = {
-  "Text" : TextField,
-  "Integer": IntegerField,
-  "Date and Time": DateTimeField,
-  "Lookup": ForeignKeyField
-}
-
 def prompt_column(commands, model):
+  model = db.models.get(model)
   print_model(model)
   class DefualtRequired(Validator):
     def validate(self, document):
@@ -207,8 +202,7 @@ def prompt_column(commands, model):
   fk_cls = db.models.get(a.get("fk_cls"))
   fk_backref = a.get("fk_backref")
   m = make_column(model, col_name, col_cls, col_null, col_default, fk_cls=fk_cls, fk_backref=fk_backref)
-  globals().update(m)
-  db.models = m
+  db.models.update(m)
   print_model(m.get(model._meta.table_name))
   return commands
   
@@ -225,55 +219,32 @@ def prompt_model(commands):
   m=make_model(model_name)
   if not m.table_exists():
     m.create_table()
-  globals()[m.model_name] = m
+  # globals()[m.model_name] = m
+  db.models[model_name] = m
   print_model(m)
-  commands = push_command(
-      "New {} model field".format(model_name), 
-      lambda commands: prompt_column(commands, db.models.get(model_name)), 
-      commands
-  )
-  return commands
-
-def add_model_commands(commands, m):
-  model_name = m._meta.table_name
-  
-  commands = push_command(
-      "Edit {}".format(model_name),
-      lambda commands: prompt_edit(commands, globals().get(model_name)),
-      commands
-  )
-  commands = push_command(
-      "New {}".format(model_name),
-      lambda commands: prompt_instance(commands, globals().get(model_name)),
-      commands
-  )
-  commands = push_command(    
-    "List {}s".format(model_name),
-    lambda commands: list_instances(globals().get(model_name)),
-    commands
-  )
+  commands = update_model_commands(commands)
+  # commands = push_command(
+  #     "New {} model field".format(model_name), 
+  #     lambda commands: prompt_column(commands, model_name), 
+  #     commands
+  # )
   return commands
 
 def cons_menu(commands):
   prev = copy(commands)
-  commands = OrderedDict({"Back": lambda commands: prev})
+  commands = OrderedDict({"Back": lambda commands: update_data_commands(prev)})
   commands = push_command(
     "New Model",
     prompt_model, 
     commands)
-  for m in db.models.values():
-    model_name = m._meta.table_name
-    commands = push_command(
-      "New {} model field".format(model_name), 
-      lambda commands: prompt_column(commands, db.models.get(model_name)), 
-      commands
-  )
-  return commands
-
-def data_menu(commands, model):
-  prev = copy(commands)
-  commands = OrderedDict({"Back": lambda commands: prev})
-  commands = add_model_commands(commands, model)
+  commands = update_model_commands(commands)
+  # for m in db.models.values():
+  #   model_name = m._meta.table_name
+  #   commands = push_command(
+  #     "New {} model field".format(model_name), 
+  #     lambda commands: prompt_column(commands, model_name), 
+  #     commands
+  # )
   return commands
 
 def prompt_db(commands):
@@ -285,7 +256,6 @@ def prompt_db(commands):
     }
   ]
   a = prompt(q)
-  # print(a)
   db.init(a.get("file_name"))
   commands = push_command(
     "Construct",
@@ -293,42 +263,116 @@ def prompt_db(commands):
     commands)
   models = generate_models(db)
   db.models = models
-  for name, model in models.items():
-    print_model(model)
-    # add_model_commands(commands, model)
-    commands = push_command(name, open_data_menu(commands, name), commands)
-  globals().update(models)
+  commands = update_data_commands(commands)
   if len(db.get_tables()) == 0:
     print("Hmm. This crate appears to be empty. Try making a new model.")
   return commands
+
+def update_data_commands(commands):
+  for name, model in db.models.items():
+    print_model(model)
+    commands = push_command(name, open_data_menu(commands, name), commands)
+  return commands
+
 def open_data_menu(commands, name):
   return lambda commands: data_menu(commands, db.models.get(name))
-commands = push_command(
-  "Open Crate", 
-  prompt_db, 
-  commands)
+
+def data_menu(commands, model):
+  prev = copy(commands)
+  commands = OrderedDict({"Back": lambda commands: prev})
+  commands = add_data_commands(commands, model)
+  return commands
+
+def add_data_commands(commands, m):
+  model_name = m._meta.table_name
+  commands = push_command(
+      "Edit {}".format(model_name),
+      lambda commands: prompt_edit(commands, db.models.get(model_name)),
+      commands
+  )
+  commands = push_command(
+      "New {}".format(model_name),
+      lambda commands: prompt_instance(commands, db.models.get(model_name)),
+      commands
+  )
+  commands = push_command(    
+    "List {}s".format(model_name),
+    lambda commands: list_instances(commands, db.models.get(model_name)),
+    commands
+  )
+  return commands
+
+def update_model_commands(commands):
+  for name, model in db.models.items():
+    print_model(model)
+    commands = push_command("{} model".format(name), open_model_menu(commands, name), commands)
+  return commands
+
+def open_model_menu(commands, name):
+  return lambda commands: model_menu(commands, db.models.get(name))
+
+def model_menu(commands, model):
+  prev = copy(commands)
+  commands = OrderedDict({"Back": lambda commands: prev})
+  commands = add_model_commands(commands, model)
+  return commands
+
+def add_model_commands(commands, m):
+  model_name = m._meta.table_name
+  commands = push_command(
+      "Edit {} model".format(model_name),
+      lambda commands: prompt_edit_model(commands, db.models.get(model_name)),
+      commands
+  )
+  commands = push_command(
+      "New {} model field".format(model_name),
+      lambda commands: prompt_column(commands, model_name),
+      commands
+  )
+  commands = push_command(    
+    "View {} model".format(model_name),
+    lambda commands: view_model(commands, model_name),
+    commands
+  )
+  return commands
+def prompt_edit_model(commands, model):
+  print("not implemented")
+  return commands
+
+def view_model(commands, name):
+  print_model(db.models.get(name))
+  return commands
 
 def get_cmd_list(commands):
   return [
     k for k,_ in commands.items()
   ]
 
-main_menu = {
-  "type": "list",
-  "name": "cmd",
-  "message": "Select:",
-  "choices": get_cmd_list(commands)
-}
+def main():
+  commands = OrderedDict({"Quit": exit})
+  commands = push_command(
+    "Open Crate", 
+    prompt_db, 
+    commands)
 
-print("CrateD 0.0.1")
-while True:
-  print("Current Crate: {}".format(db.database))
-  key = prompt(main_menu).get("cmd")
-  if key != "Quit":
-    # print(key)
-    if key is not None:
-      commands=commands.get(key)(commands)
-    # update our choices in case commands have changed 
-    main_menu["choices"] = get_cmd_list(commands) 
-  else:
-    break
+  main_menu = {
+    "type": "list",
+    "name": "cmd",
+    "message": "Select:",
+    "choices": get_cmd_list(commands)
+  }
+  print("CrateD 0.0.1")
+  while True:
+    print("Current Crate: {}".format(db.database))
+    key = prompt(main_menu).get("cmd")
+    if key != "Quit":
+      # print(key)
+      if key is not None:
+        commands=commands.get(key)(commands)
+      # update our choices in case commands have changed 
+      main_menu["choices"] = get_cmd_list(commands) 
+    else:
+      break
+
+if __name__ == '__main__':
+  main()
