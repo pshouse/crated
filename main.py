@@ -85,9 +85,6 @@ def make_column(model, name, col_cls, col_null, col_default, label=None, fk_cls=
   
   # create instance of col_type
   # TODO: handle specific attributes for each type
-  # constraints = []
-  # if col_default:
-  #   constraints.append(SQL("DEFAULT ?",(col_default,)))
   if col_cls == ForeignKeyField:
     column = col_cls(fk_cls, null=col_null, field=fk_cls._meta.primary_key, backref=fk_backref, lazy_load=True)
   else:
@@ -95,15 +92,9 @@ def make_column(model, name, col_cls, col_null, col_default, label=None, fk_cls=
   migrate(
     migrator.add_column(model._meta.table_name, column_name, column)
   )
-  table_names=[model._meta.table_name]
-  if col_cls == ForeignKeyField:
-    table_names.append(fk_cls._meta.table_name)
-  models =  generate_models(db, table_names=[model._meta.table_name])
-  fk_model = models.get(fk_cls._meta.table_name)
-  setattr(fk_model, fk_backref, getattr(fk_model, '%s_%s_rel' % (model._meta.table_name, name)))
-  model = models.get(model._meta.table_name)
-  setattr(model._meta.fields[name], 'backref', fk_backref)
-  return models
+  model._meta.add_field(column_name, column)
+
+  return {model._meta.table_name: model}
 
 def prompt_field(commands, field, current_value=None):
   q = {
@@ -214,6 +205,7 @@ def prompt_column(commands, model):
   fk_backref = a.get("fk_backref")
   m = make_column(model, col_name, col_cls, col_null, col_default, fk_cls=fk_cls, fk_backref=fk_backref)
   db.models.update(m)
+  MetaData.update(MetaData.name=='models', db.models)
   print_model(m.get(model._meta.table_name))
   return commands
   
@@ -232,6 +224,7 @@ def prompt_model(commands):
     m.create_table()
   # globals()[m.model_name] = m
   db.models[model_name] = m
+  MetaData.update(MetaData.name=='modles', db.models)
   # print_model(m)
   commands = update_model_commands(commands)
   return commands
@@ -273,6 +266,7 @@ def prompt_db(commands):
   else:
     MetaData.create_table()
     models = generate_models(db)
+    MetaData.create(name='models', models=models)
   db.models = models
   
   commands = update_data_commands(commands)
