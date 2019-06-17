@@ -1,6 +1,7 @@
-from peewee import Model, SqliteDatabase, TextField, DateTimeField, SQL, ForeignKeyField, IntegerField
+from peewee import Model, SqliteDatabase, TextField, DateTimeField, SQL, ForeignKeyField, IntegerField, DateField
 from playhouse.reflection import RESERVED_WORDS, generate_models, print_model
 from playhouse.migrate import SqliteMigrator, migrate
+from playhouse.fields import PickleField
 
 from types import MethodType
 
@@ -10,11 +11,12 @@ from collections import OrderedDict
 from copy import copy
 from tabulate import tabulate
 
-db = SqliteDatabase(None)
+db = SqliteDatabase(None, pragmas={'foreign_keys': 1})
 migrator = SqliteMigrator(db)
 type_to_col_class = {
   "Text" : TextField,
   "Integer": IntegerField,
+  "Date": DateField,
   "Date and Time": DateTimeField,
   "Lookup": ForeignKeyField
 }
@@ -52,6 +54,8 @@ class Base(Model):
   modified = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
   class Meta:
     database = db
+class MetaData(Base):
+  models = PickleField()
 
 def make_model(name, label=None):
   if name in RESERVED_WORDS:
@@ -71,7 +75,7 @@ def make_model(name, label=None):
   return model
 
 def make_column(model, name, col_cls, col_null, col_default, label=None, fk_cls=None, fk_backref=None ):
-  print("col_null: {}".format(col_null))
+  # print("col_null: {}".format(col_null))
   if name in RESERVED_WORDS:
     new_name = name + '_'
     print("'{}' is reserved. Replacing with '{}'.".format(name,new_name))
@@ -85,14 +89,21 @@ def make_column(model, name, col_cls, col_null, col_default, label=None, fk_cls=
   # if col_default:
   #   constraints.append(SQL("DEFAULT ?",(col_default,)))
   if col_cls == ForeignKeyField:
-    print(fk_cls)
     column = col_cls(fk_cls, null=col_null, field=fk_cls._meta.primary_key, backref=fk_backref, lazy_load=True)
   else:
     column = col_cls(null=col_null, default=col_default)
   migrate(
     migrator.add_column(model._meta.table_name, column_name, column)
   )
-  return generate_models(db, table_names=[model._meta.table_name])
+  table_names=[model._meta.table_name]
+  if col_cls == ForeignKeyField:
+    table_names.append(fk_cls._meta.table_name)
+  models =  generate_models(db, table_names=[model._meta.table_name])
+  fk_model = models.get(fk_cls._meta.table_name)
+  setattr(fk_model, fk_backref, getattr(fk_model, '%s_%s_rel' % (model._meta.table_name, name)))
+  model = models.get(model._meta.table_name)
+  setattr(model._meta.fields[name], 'backref', fk_backref)
+  return models
 
 def prompt_field(commands, field, current_value=None):
   q = {
@@ -221,13 +232,8 @@ def prompt_model(commands):
     m.create_table()
   # globals()[m.model_name] = m
   db.models[model_name] = m
-  print_model(m)
+  # print_model(m)
   commands = update_model_commands(commands)
-  # commands = push_command(
-  #     "New {} model field".format(model_name), 
-  #     lambda commands: prompt_column(commands, model_name), 
-  #     commands
-  # )
   return commands
 
 def cons_menu(commands):
@@ -261,8 +267,14 @@ def prompt_db(commands):
     "Construct",
     cons_menu, 
     commands)
-  models = generate_models(db)
+
+  if MetaData.table_exists():
+    models = MetaData.get(MetaData.name=='models').models
+  else:
+    MetaData.create_table()
+    models = generate_models(db)
   db.models = models
+  
   commands = update_data_commands(commands)
   if len(db.get_tables()) == 0:
     print("Hmm. This crate appears to be empty. Try making a new model.")
@@ -335,6 +347,7 @@ def add_model_commands(commands, m):
     commands
   )
   return commands
+
 def prompt_edit_model(commands, model):
   print("not implemented")
   return commands
