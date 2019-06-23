@@ -217,17 +217,19 @@ def prompt_column(commands, model):
   ]
   a = prompt(q)
   col_name = a.get("col_name")
-  col_cls = type_to_fld_cls.get(a.get("col_type"))
+  # col_cls = type_to_fld_cls.get(a.get("col_type"))
+  fld_type = a.get("col_type")
   print(a.get('required'))
   col_null = not a.get("required") if a.get("required") is not None else True
   col_default = a.get("default")
-  fk_cls = db.models.get(a.get("fk_cls"))
+  # fk_cls = db.models.get(a.get("fk_cls"))
+  fk_type = a.get("fk_cls")
   fk_backref = a.get("fk_backref")
-  m = make_field(model, col_name, col_cls, col_null, col_default, fk_cls=fk_cls, fk_backref=fk_backref)
+  m = make_field(model, col_name, fld_type, col_null, col_default, fk_type=fk_type, fk_backref=fk_backref)
   # m._meta.database = None
   # MetaData.update(MetaData.name=='models', pickle.dumps(db.models))
   # db.models.update(m)
-  print_model(m.get(model._meta.table_name))
+  print_model(m)
   return commands
   
 def prompt_model(commands):  
@@ -295,18 +297,18 @@ def prompt_db(commands):
     cons_menu, 
     commands)
 
-  if MetaData.table_exists() and MetaData.select().count() > 0:
-    metadata = MetaData.get(MetaData.name=='metadata')
-    models = pickle.loads(metadata.models)
-  else:
-    MetaData.create_table()
-    # models = generate_models(db)
-    models = {}
-    MetaData.create(name='metadata', models=pickle.dumps(models))
-  db.models = models
+  # if MetaData.table_exists() and MetaData.select().count() > 0:
+  #   metadata = MetaData.get(MetaData.name=='metadata')
+  #   models = pickle.loads(metadata.models)
+  # else:
+  #   MetaData.create_table()
+  #   # models = generate_models(db)
+  #   models = {}
+  #   MetaData.create(name='metadata', models=pickle.dumps(models))
+  # db.models = models
   
   commands = update_data_commands(commands)
-  if len(db.get_tables()) == 0:
+  if len(db.get_tables()) == 1:
     print("Hmm. This crate appears to be empty. Try making a new model.")
   return commands
 
