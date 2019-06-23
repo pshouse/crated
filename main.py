@@ -1,9 +1,9 @@
-from peewee import Model, SqliteDatabase, TextField, DateTimeField, SQL, ForeignKeyField, IntegerField, DateField
-from playhouse.reflection import RESERVED_WORDS, generate_models, print_model
-from playhouse.migrate import SqliteMigrator, migrate
-from playhouse.fields import PickleField
+from peewee import Model, SqliteDatabase, TextField, DateTimeField, SQL, ForeignKeyField, IntegerField, DateField, BlobField, buffer_type
+from playhouse.reflection import RESERVED_WORDS, generate_models, print_model, DatabaseProxy
+# from playhouse.migrate import SqliteMigrator, migrate
+# from playhouse.fields import PickleField
 
-from types import MethodType
+# from types import MethodType
 
 from PyInquirer import prompt, Validator, ValidationError
 from collections import OrderedDict
@@ -11,15 +11,34 @@ from collections import OrderedDict
 from copy import copy
 from tabulate import tabulate
 
-db = SqliteDatabase(None, pragmas={'foreign_keys': 1})
-migrator = SqliteMigrator(db)
-type_to_col_class = {
-  "Text" : TextField,
-  "Integer": IntegerField,
-  "Date": DateField,
-  "Date and Time": DateTimeField,
-  "Lookup": ForeignKeyField
-}
+from crated import make_model, make_field, app_models, db, type_to_fld_cls, open_database
+# import cloudpickle as pickle
+# import dill as pickle
+
+# class DillField(BlobField):
+#     def python_value(self, value):
+#         if value is not None:
+#             if isinstance(value, buffer_type):
+#                 value = bytes(value)
+#             return pickle.loads(value)
+
+#     def db_value(self, value):
+#         if value is not None:
+#             pickled = pickle.dumps(value, pickle.HIGHEST_PROTOCOL)
+#             return self._constructor(pickled)
+
+# db = SqliteDatabase(None, pragmas={'foreign_keys': 1})
+# db = DatabaseProxy()
+# migrator = SqliteMigrator(db)
+# app_models = OrderedDict()
+
+# type_to_col_class = {
+#   "Text" : TextField,
+#   "Integer": IntegerField,
+#   "Date": DateField,
+#   "Date and Time": DateTimeField,
+#   "Lookup": ForeignKeyField
+# }
 
 def push_command(k, v, commands):
   commands[k] = v
@@ -27,74 +46,76 @@ def push_command(k, v, commands):
   # commands.move_to_end("Quit")
   return commands
 
-def create_trigger(func):
-  def wrapper(*args, **kwargs):
-    # print("args:{}".format(args))
-    func(*args, **kwargs)
-    trigger_txt = '''
-      create trigger if not exists {tbl_name}_set_modified after update on {tbl_name}
-      begin
-      update {tbl_name} set modified = CURRENT_TIMESTAMP where id = NEW.id;
-      end; 
-    '''
-    db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name))
-    trigger_txt = '''
-      CREATE TRIGGER if not exists {tbl_name}_ro_columns
-      BEFORE UPDATE OF created ON {tbl_name} when OLD.created != NEW.created
-      BEGIN
-          SELECT raise(abort, 'can''t change created date!');
-      END
-    '''
-    db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name))
-  return wrapper
+# def create_trigger(func):
+#   def wrapper(*args, **kwargs):
+#     # print("args:{}".format(args))
+#     func(*args, **kwargs)
+#     trigger_txt = '''
+#       create trigger if not exists {tbl_name}_set_modified after update on {tbl_name}
+#       begin
+#       update {tbl_name} set modified = CURRENT_TIMESTAMP where id = NEW.id;
+#       end; 
+#     '''
+#     db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name))
+#     trigger_txt = '''
+#       CREATE TRIGGER if not exists {tbl_name}_ro_columns
+#       BEFORE UPDATE OF created ON {tbl_name} when OLD.created != NEW.created
+#       BEGIN
+#           SELECT raise(abort, 'can''t change created date!');
+#       END
+#     '''
+#     db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name))
+#   return wrapper
 
-class Base(Model):
-  name = TextField()
-  created = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
-  modified = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
-  class Meta:
-    database = db
-class MetaData(Base):
-  models = PickleField()
+# class Base(Model):
+#   name = TextField()
+#   created = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
+#   modified = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
+#   class Meta:
+#     database = db
 
-def make_model(name, label=None):
-  if name in RESERVED_WORDS:
-    new_name = name + '_'
-    print("'{}' is reserved. Replacing with '{}'.".format(name,new_name))
-    name = new_name
-  model_name = name
-  label = label or name
-  attrs = {
-    "model_name": model_name,
-    "label":label,
-    }
-  model = type(name, (Base,), attrs)
-  # wrap the create_table method to ensure triggers are created immediatley after 
-  model.create_table = create_trigger(model.create_table)
-  model.create_table = MethodType(model.create_table, model)
-  return model
+# class MetaData(Base):
+#   # models = PickleField()
+#   models = BlobField()
 
-def make_column(model, name, col_cls, col_null, col_default, label=None, fk_cls=None, fk_backref=None ):
-  # print("col_null: {}".format(col_null))
-  if name in RESERVED_WORDS:
-    new_name = name + '_'
-    print("'{}' is reserved. Replacing with '{}'.".format(name,new_name))
-    name = new_name
-  column_name = name
-  label = label or name
+# def make_model(name, label=None):
+#   if name in RESERVED_WORDS:
+#     new_name = name + '_'
+#     print("'{}' is reserved. Replacing with '{}'.".format(name,new_name))
+#     name = new_name
+#   model_name = name
+#   label = label or name
+#   attrs = {
+#     "model_name": model_name,
+#     "label":label,
+#     }
+#   model = type(name, (Base,), attrs)
+#   # wrap the create_table method to ensure triggers are created immediatley after 
+#   model.create_table = create_trigger(model.create_table)
+#   model.create_table = MethodType(model.create_table, model)
+#   return model
+
+# def make_column(model, name, col_cls, col_null, col_default, label=None, fk_cls=None, fk_backref=None ):
+#   # print("col_null: {}".format(col_null))
+#   if name in RESERVED_WORDS:
+#     new_name = name + '_'
+#     print("'{}' is reserved. Replacing with '{}'.".format(name,new_name))
+#     name = new_name
+#   column_name = name
+#   label = label or name
   
-  # create instance of col_type
-  # TODO: handle specific attributes for each type
-  if col_cls == ForeignKeyField:
-    column = col_cls(fk_cls, null=col_null, field=fk_cls._meta.primary_key, backref=fk_backref, lazy_load=True)
-  else:
-    column = col_cls(null=col_null, default=col_default)
-  migrate(
-    migrator.add_column(model._meta.table_name, column_name, column)
-  )
-  model._meta.add_field(column_name, column)
+#   # create instance of col_type
+#   # TODO: handle specific attributes for each type
+#   if col_cls == ForeignKeyField:
+#     column = col_cls(fk_cls, null=col_null, field=fk_cls._meta.primary_key, backref=fk_backref, lazy_load=True)
+#   else:
+#     column = col_cls(null=col_null, default=col_default)
+#   migrate(
+#     migrator.add_column(model._meta.table_name, column_name, column)
+#   )
+#   model._meta.add_field(column_name, column)
 
-  return {model._meta.table_name: model}
+#   return {model._meta.table_name: model}
 
 def prompt_field(commands, field, current_value=None):
   q = {
@@ -119,8 +140,7 @@ def prompt_instance(commands, model_cls, model_instance=None):
       new_value = prompt_field(commands, field, current_value=current_value)
       if isinstance(field, (ForeignKeyField,IntegerField)) and new_value == '':
         new_value = None
-      setattr(row, field.name, new_value)
-  
+      setattr(row, field.name, new_value) 
   row.save()
   list_instances(commands, model_cls)
   return commands
@@ -159,7 +179,7 @@ def prompt_column(commands, model):
      "type": "list",
      "name": "col_type",
      "message": "Field type?",
-     "choices": [ k for k,_ in type_to_col_class.items()]
+     "choices": [ k for k,_ in type_to_fld_cls.items()]
    },
    {
      "type": "confirm",
@@ -197,15 +217,16 @@ def prompt_column(commands, model):
   ]
   a = prompt(q)
   col_name = a.get("col_name")
-  col_cls = type_to_col_class.get(a.get("col_type"))
+  col_cls = type_to_fld_cls.get(a.get("col_type"))
   print(a.get('required'))
   col_null = not a.get("required") if a.get("required") is not None else True
   col_default = a.get("default")
   fk_cls = db.models.get(a.get("fk_cls"))
   fk_backref = a.get("fk_backref")
-  m = make_column(model, col_name, col_cls, col_null, col_default, fk_cls=fk_cls, fk_backref=fk_backref)
-  db.models.update(m)
-  MetaData.update(MetaData.name=='models', db.models)
+  m = make_field(model, col_name, col_cls, col_null, col_default, fk_cls=fk_cls, fk_backref=fk_backref)
+  # m._meta.database = None
+  # MetaData.update(MetaData.name=='models', pickle.dumps(db.models))
+  # db.models.update(m)
   print_model(m.get(model._meta.table_name))
   return commands
   
@@ -220,12 +241,22 @@ def prompt_model(commands):
   a = prompt(q)
   model_name = a.get("model_name")
   m=make_model(model_name)
-  if not m.table_exists():
-    m.create_table()
-  # globals()[m.model_name] = m
-  db.models[model_name] = m
-  MetaData.update(MetaData.name=='modles', db.models)
-  # print_model(m)
+  
+  # metadata=MetaData.get(MetaData.name=="metadata")
+  # models = pickle.loads(metadata.models)
+  # m._meta.database = None
+  # models.update({model_name: m})
+  # metadata.models = pickle.dumps(models)
+  # metadata.save()
+  # m._meta.database = db
+
+  # if not m.table_exists():
+  #   m.create_table()
+  # # globals()[m.model_name] = m
+  # db.models[model_name] = m
+  # # m.__module__ = __name__ # hack to the class work with Pickle
+  # # globals().update({'dog':m})
+  # # print_model(m)
   commands = update_model_commands(commands)
   return commands
 
@@ -255,18 +286,23 @@ def prompt_db(commands):
     }
   ]
   a = prompt(q)
-  db.init(a.get("file_name"))
+  open_database((a.get("file_name")))
+  # db.init(a.get("file_name"))
+  # db = SqliteDatabase(a.get("file_name"))
+  # db.bind([MetaData])
   commands = push_command(
     "Construct",
     cons_menu, 
     commands)
 
-  if MetaData.table_exists():
-    models = MetaData.get(MetaData.name=='models').models
+  if MetaData.table_exists() and MetaData.select().count() > 0:
+    metadata = MetaData.get(MetaData.name=='metadata')
+    models = pickle.loads(metadata.models)
   else:
     MetaData.create_table()
-    models = generate_models(db)
-    MetaData.create(name='models', models=models)
+    # models = generate_models(db)
+    models = {}
+    MetaData.create(name='metadata', models=pickle.dumps(models))
   db.models = models
   
   commands = update_data_commands(commands)
@@ -370,6 +406,7 @@ def main():
   }
   print("CrateD 0.0.1")
   while True:
+    # if not isinstance(db, DatabaseProxy):
     print("Current Crate: {}".format(db.database))
     key = prompt(main_menu).get("cmd")
     if key != "Quit":
