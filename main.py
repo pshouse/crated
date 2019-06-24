@@ -69,58 +69,60 @@ def prompt_column(commands, model):
     {
       "type": "input",
       "name": "col_name",
-      "message": "Field name?"
+      "message": "Field name (empty=cancel)?"
    },
    {
      "type": "list",
      "name": "col_type",
      "message": "Field type?",
-     "choices": [ k for k,_ in type_to_fld_cls.items()]
+     "choices": [ k for k,_ in type_to_fld_cls.items()],
+     "when": lambda a: a['col_name'] != ''
    },
    {
      "type": "confirm",
      "name": "required",
      "message": "Required (If Y, provide default value)",
      "default": False,
-     "when": lambda a: not a["col_type"] == "Lookup"
+     "when": lambda a: a['col_name'] != '' and not a["col_type"] == "Lookup"
    },
    {
      "type": "input",
      "name": "default",
      "message": "Default value:",
      "validate": DefualtRequired,
-     "when": lambda a: not a["col_type"] == "Lookup" and a["required"]
+     "when": lambda a: a['col_name'] != '' and not a["col_type"] == "Lookup" and a["required"]
    },
    {
      "type": "input",
      "name": "default",
      "message": "Default value:",
-     "when": lambda a: not a["col_type"] == "Lookup" and not a["required"]
+     "when": lambda a: a['col_name'] != '' and not a["col_type"] == "Lookup" and not a["required"]
    },
    {
      "type": "list",
      "name": "fk_cls",
      "message": "Lookup to?",
      "choices": [k for k in db.models.keys()],
-     "when": lambda a: a["col_type"]=="Lookup",
+     "when": lambda a: a['col_name'] != '' and a["col_type"]=="Lookup",
    },
    {
      "type": "input",
      "name": "fk_backref",
      "message": "Back reference name?",
-     "when": lambda a: a["col_type"]=="Lookup", 
+     "when": lambda a: a['col_name'] != '' and a["col_type"]=="Lookup", 
    }
   ]
   a = prompt(q)
-  col_name = a.get("col_name")
-  fld_type = a.get("col_type")
-  print(a.get('required'))
-  col_null = not a.get("required") if a.get("required") is not None else True
-  col_default = a.get("default")
-  fk_type = a.get("fk_cls")
-  fk_backref = a.get("fk_backref")
-  m = make_field(model, col_name, fld_type, col_null, col_default, fk_type=fk_type, fk_backref=fk_backref)
-  print_model(m)
+  col_name = a.get("col_name")   
+  if col_name != '':
+    fld_type = a.get("col_type")
+    print(a.get('required'))
+    col_null = not a.get("required") if a.get("required") is not None else True
+    col_default = a.get("default")
+    fk_type = a.get("fk_cls")
+    fk_backref = a.get("fk_backref")
+    m = make_field(model, col_name, fld_type, col_null, col_default, fk_type=fk_type, fk_backref=fk_backref)
+    print_model(m)
   return commands
   
 def prompt_model(commands):  
