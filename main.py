@@ -1,5 +1,5 @@
-from peewee import Model, SqliteDatabase, TextField, DateTimeField, SQL, ForeignKeyField, IntegerField, DateField, BlobField, buffer_type
-from playhouse.reflection import RESERVED_WORDS, generate_models, print_model, DatabaseProxy
+from peewee import Model, IntegerField, ForeignKeyField
+from playhouse.reflection import print_model
 
 from PyInquirer import prompt, Validator, ValidationError
 from collections import OrderedDict
@@ -7,7 +7,7 @@ from collections import OrderedDict
 from copy import copy
 from tabulate import tabulate
 
-from crated import make_model, make_field, app_models, db, type_to_fld_cls, open_database
+from crated import make_model, make_field, db, type_to_fld_cls, open_database, delete_model
 
 def push_command(k, v, commands):
   commands[k] = v
@@ -69,13 +69,14 @@ def prompt_column(commands, model):
     {
       "type": "input",
       "name": "col_name",
-      "message": "Field name (empty=cancel)?"
+      "message": "Field name? (empty=cancel)"
    },
    {
      "type": "list",
      "name": "col_type",
      "message": "Field type?",
-     "choices": [ k for k,_ in type_to_fld_cls.items()],
+     "choices": [ k for k,_ in type_to_fld_cls.items()
+     ],
      "when": lambda a: a['col_name'] != ''
    },
    {
@@ -110,18 +111,26 @@ def prompt_column(commands, model):
      "name": "fk_backref",
      "message": "Back reference name?",
      "when": lambda a: a['col_name'] != '' and a["col_type"]=="Lookup", 
+   },
+   {
+     "type": "confirm",
+     "name": "index",
+     "message": "Index?",
+     "default": False,
+     "when": lambda a: a['col_name'] != '' and not a["col_type"] == "Lookup"
    }
   ]
   a = prompt(q)
-  col_name = a.get("col_name")   
-  if col_name != '':
+  if a['col_name'] != '':
+    col_name = a.get("col_name")
     fld_type = a.get("col_type")
-    print(a.get('required'))
+    # print(a.get('required'))
     col_null = not a.get("required") if a.get("required") is not None else True
     col_default = a.get("default")
     fk_type = a.get("fk_cls")
     fk_backref = a.get("fk_backref")
-    m = make_field(model, col_name, fld_type, col_null, col_default, fk_type=fk_type, fk_backref=fk_backref)
+    index = a.get("index")
+    m = make_field(model, col_name, fld_type, col_null, col_default, fk_type=fk_type, fk_backref=fk_backref, index=index)
     print_model(m)
   return commands
   
@@ -139,6 +148,22 @@ def prompt_model(commands):
   
   commands = update_model_commands(commands)
   return commands
+
+def prompt_delete_model(commands, model):
+  model_name = model._meta.name
+  q = [
+    {
+      "type": "confirm",
+      "name":"confirm_delete",
+      "message": "All {model} data will be lost. Are you sure you want to delete {model} model?".format(model=model_name),
+      "default": False
+    }
+  ]
+  a = prompt(q)
+  confirm_delete = a.get("confirm_delete")
+  if confirm_delete:
+    delete_model(model)
+  return {'Back' : commands['Back']}
 
 def cons_menu(commands):
   prev = copy(commands)
@@ -222,6 +247,11 @@ def model_menu(commands, model):
 def add_model_commands(commands, m):
   model_name = m._meta.table_name
   commands = push_command(
+      "Delete {} model".format(model_name),
+      lambda commands: prompt_delete_model(commands, db.models.get(model_name)),
+      commands
+  )
+  commands = push_command(
       "Edit {} model".format(model_name),
       lambda commands: prompt_edit_model(commands, db.models.get(model_name)),
       commands
@@ -264,7 +294,7 @@ def main():
     "message": "Select:",
     "choices": get_cmd_list(commands)
   }
-  print("CrateD 0.0.1")
+  print("CrateD 0.1.0")
   while True:
     print("Current Crate: {}".format(db.database))
     key = prompt(main_menu).get("cmd")

@@ -1,12 +1,11 @@
 # import pickle
 # import pickletools
-from peewee import (Model, SqliteDatabase, BlobField, TextField, IntegerField, 
-                    DateField, DateTimeField, ForeignKeyField, BooleanField, SQL)
+from peewee import (Model, SqliteDatabase, BlobField, TextField, IntegerField, DateField, DateTimeField, ForeignKeyField, BooleanField, SQL)
 # import dill as pickle
 from cloudpickle import dumps, loads
 # from objgraph import show_refs
 from playhouse.migrate import SqliteMigrator, migrate
-from playhouse.reflection import print_model, print_table_sql
+# from playhouse.reflection import print_model, print_table_sql
 import logging
 from collections import OrderedDict
 from types import MethodType
@@ -19,7 +18,7 @@ type_to_fld_cls = {
   "Text" : TextField,
   "Integer": IntegerField,
   "Checkbox": BooleanField,
-  "Date": DateField,
+  'Date': DateField,
   "Date and Time": DateTimeField,
   "Lookup": ForeignKeyField
 }
@@ -48,20 +47,20 @@ def create_trigger(func):
     # print("args:{}".format(args))
     func(*args, **kwargs)
     trigger_txt = '''
-      create trigger if not exists {tbl_name}_set_modified after update on {tbl_name}
+      create trigger if not exists {tbl_name}_set_{col_name} after update on {tbl_name}
       begin
-      update {tbl_name} set modified = CURRENT_TIMESTAMP where id = NEW.id;
+      update {tbl_name} set modified = {expression} where id = NEW.id;
       end; 
     '''
-    db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name))
+    db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name, col_name='modified', expression="CURRENT_TIMESTAMP"))
     trigger_txt = '''
-      CREATE TRIGGER if not exists {tbl_name}_ro_columns
-      BEFORE UPDATE OF created ON {tbl_name} when OLD.created != NEW.created
+      CREATE TRIGGER if not exists {tbl_name}_ro_{col_name}
+      BEFORE UPDATE OF created ON {tbl_name} when OLD.{col_name} != NEW.{col_name}
       BEGIN
-          SELECT raise(abort, 'can''t change created date!');
+          SELECT raise(abort, 'can''t change {col_name}!');
       END
     '''
-    db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name))
+    db.execute_sql(trigger_txt.format(tbl_name=args[0]._meta.table_name, col_name="created"))
   return wrapper
 
 def make_model(name):
@@ -81,8 +80,7 @@ def make_model(name):
   db.models[name] = mdl_cls
   return mdl_cls
 
-def make_field(mdl_cls, name, fld_type, fld_null, fld_default, fld_label=None, 
-                fk_type=None, fk_backref=None, column_name=None, **kwargs):
+def make_field(mdl_cls, name, fld_type, fld_null, fld_default, fld_label=None, fk_type=None, fk_backref=None, column_name=None, **kwargs):
   fld_cls = type_to_fld_cls[fld_type]
   
   if fld_cls == ForeignKeyField:
@@ -93,7 +91,8 @@ def make_field(mdl_cls, name, fld_type, fld_null, fld_default, fld_label=None,
     # print("column_name: {}".format(fld.column_name))
   else:
     fld = fld_cls(null=fld_null, default=fld_default, **kwargs)
-  fld_md = ((name, fld_type, fld_null, fld_default),{'fld_label':fld_label, 'fk_type': fk_type, 'fk_backref': fk_backref, 'column_name' : name})
+  kwargs.update({'fld_label':fld_label, 'fk_type': fk_type, 'fk_backref': fk_backref, 'column_name' : name})
+  fld_md = ((name, fld_type, fld_null, fld_default),kwargs)
   app_models[mdl_cls._meta.name]['fields'].append(fld_md)
   md = Metadata.get_by_id(1)
   md.models = dumps(app_models)
@@ -108,6 +107,14 @@ def make_field(mdl_cls, name, fld_type, fld_null, fld_default, fld_label=None,
   # print("column_name: {}".format(fld.column_name))
   db.models[mdl_cls._meta.name] = mdl_cls
   return mdl_cls
+
+def delete_model(mdl_cls):
+  mdl_cls.drop_table()
+  db.models.pop(mdl_cls._meta.name)
+  app_models.pop(mdl_cls._meta.name)
+  md = Metadata.get_by_id(1)
+  md.models = dumps(app_models)
+  md.save()
 
 def open_database(filename):
   db.init(filename)
