@@ -1,6 +1,7 @@
 # import pickle
 # import pickletools
-from peewee import Model, SqliteDatabase, BlobField, TextField, IntegerField, DateField, DateTimeField, ForeignKeyField, SQL
+from peewee import (Model, SqliteDatabase, BlobField, TextField, IntegerField, 
+                    DateField, DateTimeField, ForeignKeyField, BooleanField, SQL)
 # import dill as pickle
 from cloudpickle import dumps, loads
 # from objgraph import show_refs
@@ -17,6 +18,7 @@ logger.setLevel(logging.ERROR)
 type_to_fld_cls = {
   "Text" : TextField,
   "Integer": IntegerField,
+  "Checkbox": BooleanField,
   "Date": DateField,
   "Date and Time": DateTimeField,
   "Lookup": ForeignKeyField
@@ -63,6 +65,7 @@ def create_trigger(func):
   return wrapper
 
 def make_model(name):
+  name = name.lower()
   mdl_cls = type(name, (Base, ), {})
   app_models.update( { name : {'fields': []} } )
   md = Metadata.get_by_id(1)
@@ -78,17 +81,18 @@ def make_model(name):
   db.models[name] = mdl_cls
   return mdl_cls
 
-def make_field(mdl_cls, name, fld_type, fld_null, fld_default, fld_label=None, fk_type=None, fk_backref=None, column_name=None):
+def make_field(mdl_cls, name, fld_type, fld_null, fld_default, fld_label=None, 
+                fk_type=None, fk_backref=None, column_name=None, **kwargs):
   fld_cls = type_to_fld_cls[fld_type]
   
   if fld_cls == ForeignKeyField:
     if fk_type not in db.models:
       make_model(fk_type)
     fk_mdl = db.models[fk_type]
-    fld = fld_cls(fk_mdl, null=fld_null, field=fk_mdl._meta.primary_key, backref=fk_backref, lazy_load=True, column_name=column_name)
+    fld = fld_cls(fk_mdl, null=fld_null, field=fk_mdl._meta.primary_key, backref=fk_backref, lazy_load=True, column_name=column_name, **kwargs)
     # print("column_name: {}".format(fld.column_name))
   else:
-    fld = fld_cls(null=fld_null, default=fld_default)
+    fld = fld_cls(null=fld_null, default=fld_default, **kwargs)
   fld_md = ((name, fld_type, fld_null, fld_default),{'fld_label':fld_label, 'fk_type': fk_type, 'fk_backref': fk_backref, 'column_name' : name})
   app_models[mdl_cls._meta.name]['fields'].append(fld_md)
   md = Metadata.get_by_id(1)
