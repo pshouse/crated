@@ -163,7 +163,13 @@ def prompt_delete_model(commands, model):
   confirm_delete = a.get("confirm_delete")
   if confirm_delete:
     delete_model(model)
-  return {'Back' : commands['Back']}
+    prev = commands['Back'](commands)
+    prev.pop("{} model".format(model_name))
+    prev_prev = prev['Back'](commands)
+    prev_prev.pop(model_name)
+    prev["Back"] = lambda commands: prev_prev
+    return update_model_commands(prev)
+  return commands
 
 def cons_menu(commands):
   prev = copy(commands)
@@ -186,7 +192,7 @@ def prompt_db(commands):
   a = prompt(q)
   open_database((a.get("file_name")))
   commands = push_command(
-    "Construct",
+    "Manage Models",
     cons_menu, 
     commands)
 
