@@ -1,0 +1,12 @@
+[tool]
+[tool.poetry]
+authors = ["Your Name <you@example.com>"]
+name = "root"
+version = "0.1.0"
+description = "A useful box."
+[tool.poetry.dependencies]
+cloudpickle = "==1.2.1"
+peewee = "==3.9.6"
+pyinquirer = "==1.0.3"
+python = "^3.7"
+tabulate = "==0.8.3"

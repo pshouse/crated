@@ -1,0 +1,2 @@
+language = "python3"
+run = "pip install --user poetry && poetry install  && python3 main.py"
