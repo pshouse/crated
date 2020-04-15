@@ -1,4 +1,4 @@
-from peewee import Model, IntegerField, ForeignKeyField
+from peewee import Model, IntegerField, ForeignKeyField, ModelSelect
 from playhouse.reflection import print_model
 
 from PyInquirer import prompt, Validator, ValidationError
@@ -26,20 +26,44 @@ def prompt_field(commands, field, current_value=None):
   a = prompt(q)
   return a[field.name]
 
-def prompt_instance(commands, model_cls, model_instance=None):
+def prompt_instance(commands, model_cls, model_instance=None, edit=True):
   row = model_cls() if model_instance is None else model_instance
+  
   for field in model_cls._meta.sorted_fields:
-    if field.field_type != "AUTO" and field.name not in ['created','modified']:
-      current_value = getattr(model_instance, field.name, None) if model_instance else None
-      if isinstance(current_value, Model):
-        current_value = str(getattr(current_value, 'id'))
-      new_value = prompt_field(commands, field, current_value=current_value)
-      if isinstance(field, (ForeignKeyField,IntegerField)) and new_value == '':
-        new_value = None
-      setattr(row, field.name, new_value) 
-  row.save()
-  list_instances(commands, model_cls)
+    if edit:
+      if field.field_type != "AUTO" and field.name not in ['created','modified']:
+        current_value = getattr(model_instance, field.name, None) if model_instance else None
+        if isinstance(current_value, Model):
+          current_value = str(getattr(current_value, 'id'))
+        new_value = prompt_field(commands, field, current_value=current_value)
+        if isinstance(field, (ForeignKeyField,IntegerField)) and new_value == '':
+          new_value = None
+        setattr(row, field.name, new_value)
+    else:
+      print(f'{field.name}: {getattr(model_instance, field.name, None) if model_instance else None}');
+  if edit:
+    row.save()
+    list_instances(commands, model_cls)
+  else:
+    backrefs = [(item,getattr(model_instance, item)) for item in dir(model_instance) if type(getattr(model_instance, item)) == ModelSelect]
+    if len(backrefs) > 0:
+      for name,ref in backrefs:
+        print(f'{name}')
+        print(tabulate(ref.order_by(ref.model.created).dicts(), headers="keys"))
+      
+    #print(f'related: {backrefs}')
   return commands
+
+def prompt_view(commands, model_cls):
+  q={
+    "type":"list",
+    "name":"name",
+    "message": "Select to edit:",
+    "choices": [r.name for r in model_cls.select()]
+  }
+  a = prompt(q)
+  model_instance = model_cls.get(model_cls.name==a["name"])
+  return prompt_instance(commands, model_cls, model_instance=model_instance, edit=False)
 
 def prompt_edit(commands, model_cls):
   q={
@@ -218,6 +242,11 @@ def data_menu(commands, model):
 
 def add_data_commands(commands, m):
   model_name = m._meta.table_name
+  commands = push_command(
+      "View {}".format(model_name),
+      lambda commands: prompt_view(commands, db.models.get(model_name)),
+      commands
+  )
   commands = push_command(
       "Edit {}".format(model_name),
       lambda commands: prompt_edit(commands, db.models.get(model_name)),
