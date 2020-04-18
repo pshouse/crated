@@ -48,8 +48,9 @@ def prompt_instance(commands, model_cls, model_instance=None, edit=True):
     backrefs = [(item,getattr(model_instance, item)) for item in dir(model_instance) if type(getattr(model_instance, item)) == ModelSelect]
     if len(backrefs) > 0:
       for name,ref in backrefs:
-        print(f'{name}')
-        print(tabulate(ref.order_by(ref.model.created).dicts(), headers="keys"))
+        if ref.count() > 0:
+          print(f'{name}')
+          print(tabulate(ref.order_by(ref.model.created).dicts(), headers="keys"))
       
     #print(f'related: {backrefs}')
   return commands

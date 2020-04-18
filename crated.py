@@ -1,6 +1,8 @@
 # import pickle
 # import pickletools
-from peewee import (Model, SqliteDatabase, BlobField, TextField, IntegerField, DateField, DateTimeField, ForeignKeyField, BooleanField, SQL)
+# from peewee import (Model, SqliteDatabase, BlobField, TextField, IntegerField, DateField, DateTimeField, ForeignKeyField, BooleanField, SQL)
+from peewee import (Model, SQL)
+from playhouse.apsw_ext import (APSWDatabase, BlobField, TextField, IntegerField, DateField, DateTimeField, ForeignKeyField, BooleanField)
 # import dill as pickle
 from cloudpickle import dumps, loads
 # from objgraph import show_refs
@@ -23,7 +25,9 @@ type_to_fld_cls = {
   "Lookup": ForeignKeyField
 }
 # db_proxy = DatabaseProxy()
-db = SqliteDatabase(None, pragmas={'foreign_keys': 1})
+# db = SqliteDatabase(None, pragmas={'foreign_keys': 1})
+db = APSWDatabase(None, pragmas={'foreign_keys': 1})
+
 migrator = SqliteMigrator(db)
 app_models = OrderedDict()
 # class test():
